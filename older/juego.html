@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>La Costurera Guerrera: La Leyenda de Chary</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            background-color: #121212;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #game-container {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background-color: #222;
+            border: 4px solid #fff;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated; /* ¡Vital para pixel art! */
+        }
+
+        /* UI */
+        .ui-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .hud {
+            padding: 20px;
+            display: flex;
+            justify-content: space-between;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+        }
+
+        .health-bar { display: flex; gap: 4px; }
+        .hp-point {
+            width: 12px; height: 20px;
+            background: #00E676;
+            border: 2px solid #000;
+            transform: skewX(-10deg);
+        }
+        .hp-point.empty { background: #B71C1C; opacity: 0.3; }
+
+        /* Menús */
+        .menu-overlay {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 100;
+        }
+
+        .hidden { display: none !important; }
+
+        h1 {
+            color: #FFD700;
+            text-shadow: 4px 4px #C2185B;
+            font-size: 28px;
+            margin-bottom: 40px;
+            text-align: center;
+            line-height: 1.5;
+        }
+
+        button {
+            background: #E91E63;
+            color: white;
+            border: 4px solid #fff;
+            padding: 15px 40px;
+            font-family: inherit;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+            text-transform: uppercase;
+            transition: transform 0.1s;
+        }
+        button:hover { transform: scale(1.1); background: #C2185B; }
+
+        #debug-panel {
+            margin-top: 30px;
+            font-size: 10px;
+            color: #aaa;
+            text-align: left;
+            border: 1px solid #555;
+            padding: 10px;
+            background: rgba(0,0,0,0.5);
+        }
+        .status-ok { color: #00E676; }
+        .status-err { color: #FF5252; }
+
+        .notification {
+            position: absolute;
+            top: 30%;
+            width: 100%;
+            text-align: center;
+            color: #FFD700;
+            font-size: 24px;
+            text-shadow: 2px 2px #000;
+            opacity: 0;
+            transition: opacity 0.5s;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+    <!-- HUD -->
+    <div class="ui-layer" id="hud-layer">
+        <div class="hud">
+            <div>
+                <div class="health-bar" id="hp-container"></div>
+                <div style="margin-top:10px; font-size:12px;">NIVEL <span id="lvl-display">1</span></div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size:12px;">ESCUDO: <span id="shield-display">LISTO</span></div>
+            </div>
+        </div>
+        <div id="msg-area" class="notification"></div>
+    </div>
+
+    <!-- MENÚ -->
+    <div id="main-menu" class="menu-overlay">
+        <h1>LA COSTURERA<br>GUERRERA</h1>
+        <button onclick="iniciarJuego()">Jugar</button>
+        
+        <div id="debug-panel">
+            <div>ESTADO DE IMÁGENES:</div>
+            <div id="img-status-list">Comprobando archivos...</div>
+            <div style="margin-top:5px; font-style:italic;">(Deben estar junto al archivo .html)</div>
+        </div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="game-over" class="menu-overlay hidden">
+        <h1 style="color:#FF5252">¡FIN DE LA PARTIDA!</h1>
+        <button onclick="location.reload()">Reintentar</button>
+    </div>
+
+    <!-- VICTORIA -->
+    <div id="victory" class="menu-overlay hidden">
+        <h1 style="color:#69F0AE">¡VICTORIA!</h1>
+        <p>¡La boutique es tuya!</p>
+        <button onclick="location.reload()">Volver</button>
+    </div>
+</div>
+
+<script>
+/**
+ * CONFIGURACIÓN DEL JUEGO
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Ajuste para nitidez
+ctx.imageSmoothingEnabled = false;
+
+const FISICA = {
+    GRAVEDAD: 0.8,
+    VELOCIDAD: 5,
+    SALTO: -15,
+    SUELO_Y: 500
+};
+
+// Rutas de Archivos (EXACTAS)
+const ASSETS = {
+    idle: 'parada.png',
+    runR: 'derecha.png',
+    runL: 'izquierda.png',
+    enemyIdle: 'Villano_parado.png',
+    enemyRun: 'Villano_corriendo.png'
+};
+
+// Estado Global
+let imagenes = {};
+let juego = {
+    activo: false,
+    nivel: 1,
+    pantalla: 1,
+    teclas: {}
+};
+
+// Entidades
+let chary = {
+    x: 50, y: 400, w: 50, h: 80, // Ajusta tamaño si tus sprites son más grandes/pequeños
+    vx: 0, vy: 0,
+    salud: 10,
+    enSuelo: false,
+    mirandoDerecha: true,
+    escudo: 0,
+    invulnerable: 0,
+    cooldown: 0
+};
+
+let plataformas = [];
+let enemigos = [];
+let agujas = [];
+
+/**
+ * SISTEMA DE CARGA DE IMÁGENES
+ */
+function cargarImagenes() {
+    const lista = document.getElementById('img-status-list');
+    lista.innerHTML = '';
+    
+    let total = Object.keys(ASSETS).length;
+    let cargadas = 0;
+
+    for (let [clave, ruta] of Object.entries(ASSETS)) {
+        const img = new Image();
+        img.src = ruta;
+        
+        // Elemento de estado en menú
+        const statusItem = document.createElement('div');
+        statusItem.innerText = `⏳ ${ruta}`;
+        lista.appendChild(statusItem);
+
+        img.onload = () => {
+            statusItem.innerText = `✅ ${ruta}`;
+            statusItem.className = 'status-ok';
+            imagenes[clave] = img;
+            cargadas++;
+        };
+
+        img.onerror = () => {
+            statusItem.innerText = `❌ ${ruta} (No encontrado)`;
+            statusItem.className = 'status-err';
+            // Fallback: Crear un placeholder de color para que el juego no se rompa
+            imagenes[clave] = null; 
+        };
+    }
+}
+
+/**
+ * CONTROLES
+ */
+window.addEventListener('keydown', e => juego.teclas[e.key] = true);
+window.addEventListener('keyup', e => juego.teclas[e.key] = false);
+
+/**
+ * BUCLE PRINCIPAL
+ */
+function iniciarJuego() {
+    document.getElementById('main-menu').classList.add('hidden');
+    juego.activo = true;
+    cargarNivel(1);
+    loop();
+}
+
+function cargarNivel(num) {
+    juego.pantalla = num;
+    plataformas = [];
+    enemigos = [];
+    agujas = [];
+
+    // SUELO BASE (Gris oscuro abajo)
+    plataformas.push({x: -100, y: FISICA.SUELO_Y, w: 1000, h: 100, tipo: 'suelo'});
+
+    // Plataformas flotantes
+    if (num < 4) {
+        // Generar 4 plataformas aleatorias
+        for(let i=0; i<4; i++) {
+            plataformas.push({
+                x: 150 + i * 150,
+                y: 350 - Math.random() * 100,
+                w: 100, h: 20, tipo: 'plat'
+            });
+        }
+        
+        // Enemigos (Salen aleatoriamente en suelo o plataformas)
+        for(let i=0; i<3; i++) {
+            let esSuelo = Math.random() > 0.5;
+            let ex = 300 + Math.random() * 400;
+            let ey = esSuelo ? FISICA.SUELO_Y - 80 : 250; 
+            
+            enemigos.push({
+                x: ex, y: ey, w: 50, h: 80,
+                vx: 2, tipo: 'normal', salud: 3,
+                rango: [ex - 100, ex + 100]
+            });
+        }
+    } else {
+        // JEFE
+        plataformas.push({x: 100, y: 400, w: 200, h: 20, tipo: 'plat'});
+        plataformas.push({x: 500, y: 400, w: 200, h: 20, tipo: 'plat'});
+        enemigos.push({
+            x: 600, y: FISICA.SUELO_Y - 100, w: 70, h: 100,
+            vx: 1.5, tipo: 'jefe', salud: 20, rango: [0, 800]
+        });
+        notificar("¡BATALLA FINAL!");
+    }
+
+    chary.x = 50;
+    chary.y = 300;
+    chary.vx = 0; chary.vy = 0;
+    actualizarHUD();
+}
+
+function update() {
+    // --- CHARY ---
+    // Movimiento
+    if (juego.teclas['ArrowRight']) { chary.vx = FISICA.VELOCIDAD; chary.mirandoDerecha = true; }
+    else if (juego.teclas['ArrowLeft']) { chary.vx = -FISICA.VELOCIDAD; chary.mirandoDerecha = false; }
+    else { chary.vx = 0; }
+
+    // Salto
+    if (juego.teclas['ArrowUp'] && chary.enSuelo) {
+        chary.vy = FISICA.SALTO;
+        chary.enSuelo = false;
+    }
+
+    // Gravedad
+    chary.vy += FISICA.GRAVEDAD;
+    chary.x += chary.vx;
+    chary.y += chary.vy;
+
+    // Colisiones Plataformas
+    chary.enSuelo = false;
+    for (let p of plataformas) {
+        if (colision(chary, p)) {
+            // Solo aterrizar si viene cayendo y está por encima
+            if (chary.vy > 0 && chary.y + chary.h - chary.vy <= p.y + 10) {
+                chary.y = p.y - chary.h;
+                chary.vy = 0;
+                chary.enSuelo = true;
+            }
+        }
+    }
+
+    // Límites
+    if (chary.x < 0) chary.x = 0;
+    if (chary.x > 750) siguienteNivel();
+    if (chary.y > 600) dañarChary(10); // Caída
+
+    // Disparo
+    if ((juego.teclas['z'] || juego.teclas['Z']) && chary.cooldown <= 0) {
+        agujas.push({
+            x: chary.mirandoDerecha ? chary.x + chary.w : chary.x,
+            y: chary.y + 30,
+            vx: chary.mirandoDerecha ? 10 : -10,
+            propietario: 'chary', vida: 60
+        });
+        chary.cooldown = 20;
+    }
+    if (chary.cooldown > 0) chary.cooldown--;
+
+    // Escudo
+    if ((juego.teclas['x'] || juego.teclas['X']) && chary.escudo <= -300) {
+        chary.escudo = 120; // 2 seg activo
+    }
+    if (chary.escudo > -300) chary.escudo--;
+    if (chary.invulnerable > 0) chary.invulnerable--;
+
+    // --- ENEMIGOS ---
+    for (let i = enemigos.length - 1; i >= 0; i--) {
+        let e = enemigos[i];
+        
+        // IA
+        if (e.tipo === 'normal') {
+            e.x += e.vx;
+            if (e.x < e.rango[0] || e.x > e.rango[1]) e.vx *= -1;
+        } else {
+            // Jefe persigue
+            if (chary.x > e.x + 10) e.x += 1;
+            else if (chary.x < e.x - 10) e.x -= 1;
+            // Jefe dispara
+            if (Math.random() < 0.02) {
+                agujas.push({
+                    x: e.x + e.w/2, y: e.y + 40,
+                    vx: chary.x > e.x ? 7 : -7,
+                    propietario: 'enemigo', vida: 100
+                });
+            }
+        }
+
+        // Colisión con Chary
+        if (rectIntersect(chary, e)) {
+            dañarChary(1);
+        }
+
+        if (e.salud <= 0) enemigos.splice(i, 1);
+    }
+
+    // --- AGUJAS ---
+    for (let i = agujas.length - 1; i >= 0; i--) {
+        let a = agujas[i];
+        a.x += a.vx;
+        a.vida--;
+
+        if (a.propietario === 'chary') {
+            enemigos.forEach(e => {
+                if (rectIntersect({x:a.x, y:a.y, w:10, h:5}, e)) {
+                    e.salud--;
+                    a.vida = 0;
+                }
+            });
+        } else {
+            if (rectIntersect({x:a.x, y:a.y, w:10, h:5}, chary)) {
+                dañarChary(1);
+                a.vida = 0;
+            }
+        }
+
+        if (a.vida <= 0) agujas.splice(i, 1);
+    }
+}
+
+function draw() {
+    // Fondo
+    ctx.fillStyle = '#263238';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Plataformas
+    for (let p of plataformas) {
+        ctx.fillStyle = p.tipo === 'suelo' ? '#333' : '#607D8B';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeStyle = '#fff';
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+    }
+
+    // Chary
+    if (chary.invulnerable % 10 < 5) {
+        let sprite = null;
+        if (chary.vx === 0) sprite = imagenes.idle;
+        else sprite = chary.mirandoDerecha ? imagenes.runR : imagenes.runL;
+
+        // Dibujar IMAGEN si existe, si no, CUADRO AZUL
+        if (sprite) {
+            ctx.drawImage(sprite, chary.x - 15, chary.y - 10, chary.w + 30, chary.h + 10);
+        } else {
+            ctx.fillStyle = '#00B0FF';
+            ctx.fillRect(chary.x, chary.y, chary.w, chary.h);
+        }
+
+        // Escudo Visual
+        if (chary.escudo > 0) {
+            ctx.strokeStyle = '#00E676';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(chary.x + chary.w/2, chary.y + chary.h/2, 50, 0, Math.PI*2);
+            ctx.stroke();
+        }
+    }
+
+    // Enemigos
+    for (let e of enemigos) {
+        let sprite = (e.vx === 0) ? imagenes.enemyIdle : imagenes.enemyRun;
+        
+        // Dibujar IMAGEN si existe, si no, CUADRO ROJO
+        if (sprite) {
+            ctx.save();
+            // Invertir si va a la izquierda
+            if (e.vx < 0) {
+                ctx.translate(e.x + e.w, e.y);
+                ctx.scale(-1, 1);
+                ctx.drawImage(sprite, -10, 0, e.w + 20, e.h);
+            } else {
+                ctx.drawImage(sprite, e.x - 10, e.y, e.w + 20, e.h);
+            }
+            ctx.restore();
+        } else {
+            ctx.fillStyle = e.tipo === 'jefe' ? '#880E4F' : '#3E2723';
+            ctx.fillRect(e.x, e.y, e.w, e.h);
+        }
+    }
+
+    // Agujas
+    for (let a of agujas) {
+        ctx.fillStyle = a.propietario === 'chary' ? '#FFF' : '#FF5252';
+        ctx.fillRect(a.x, a.y, 15, 3);
+    }
+}
+
+function loop() {
+    if (!juego.activo) return;
+    update();
+    draw();
+    updateHUD();
+    requestAnimationFrame(loop);
+}
+
+// Helpers
+function colision(obj, plat) {
+    return obj.x < plat.x + plat.w && obj.x + obj.w > plat.x &&
+           obj.y < plat.y + plat.h && obj.y + obj.h > plat.y;
+}
+
+function rectIntersect(r1, r2) {
+    return colision(r1, r2);
+}
+
+function dañarChary(cant) {
+    if (chary.escudo > 0 || chary.invulnerable > 0) return;
+    chary.salud -= cant;
+    chary.invulnerable = 60;
+    
+    if (chary.salud <= 0) {
+        juego.activo = false;
+        document.getElementById('game-over').classList.remove('hidden');
+    }
+}
+
+function siguienteNivel() {
+    juego.pantalla++;
+    if (juego.pantalla > 4) {
+        juego.activo = false;
+        document.getElementById('victory').classList.remove('hidden');
+    } else {
+        cargarNivel(juego.pantalla);
+    }
+}
+
+function notificar(txt) {
+    const el = document.getElementById('msg-area');
+    el.innerText = txt;
+    el.style.opacity = 1;
+    setTimeout(() => el.style.opacity = 0, 2000);
+}
+
+function actualizarHUD() {
+    const bar = document.getElementById('hp-container');
+    bar.innerHTML = '';
+    for(let i=0; i<10; i++) {
+        let p = document.createElement('div');
+        p.className = 'hp-point ' + (i < chary.salud ? '' : 'empty');
+        bar.appendChild(p);
+    }
+    
+    document.getElementById('lvl-display').innerText = `1-${juego.pantalla}`;
+    
+    const escudoTxt = document.getElementById('shield-display');
+    if (chary.escudo > 0) {
+        escudoTxt.innerText = "ACTIVO"; escudoTxt.style.color = "#00E676";
+    } else if (chary.escudo > -300) {
+        escudoTxt.innerText = "CARGANDO"; escudoTxt.style.color = "#D32F2F";
+    } else {
+        escudoTxt.innerText = "LISTO (X)"; escudoTxt.style.color = "#FFF";
+    }
+}
+
+// Inicializar carga de imágenes al cargar la página
+cargarImagenes();
+
+</script>
+</body>
+</html>

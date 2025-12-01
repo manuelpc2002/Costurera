@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>La Costurera Guerrera: Retro Code Edition</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            background-color: #050505;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-wrapper {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            box-shadow: 0 0 50px rgba(0,0,0,0.9);
+            border: 4px solid #fff;
+            background: #222;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            image-rendering: pixelated;
+            outline: none;
+        }
+
+        /* Capas UI */
+        .hud-layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; padding: 15px;
+            box-sizing: border-box;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            text-shadow: 2px 2px 0 #000;
+            z-index: 10;
+        }
+
+        .life-container { display: flex; gap: 4px; }
+        .needle-hp {
+            width: 10px; height: 25px;
+            background: #00E676;
+            border: 1px solid #fff;
+            clip-path: polygon(40% 0%, 60% 0%, 100% 100%, 0% 100%);
+        }
+        .needle-hp.lost { background: #555; opacity: 0.5; }
+
+        /* Menús */
+        .menu {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 20;
+        }
+        .hidden { display: none !important; }
+
+        button {
+            background: #E91E63;
+            color: white;
+            border: 4px solid #fff;
+            padding: 20px 40px;
+            font-family: inherit;
+            font-size: 18px;
+            cursor: pointer;
+            margin-top: 15px;
+            text-transform: uppercase;
+            box-shadow: 0 5px #000;
+        }
+        button:hover { transform: scale(1.05); background: #C2185B; }
+
+        .btn-file { background: #2196F3; font-size: 10px; padding: 10px; margin-top: 5px; }
+
+        h1 { color: #FFD700; text-shadow: 4px 4px #C2185B; margin-bottom: 20px; text-align: center; line-height: 1.5; font-size: 28px; }
+
+        .debug-info {
+            position: absolute;
+            bottom: 5px; right: 5px;
+            font-size: 8px; color: #00E676; font-family: monospace;
+            z-index: 100;
+            background: rgba(0,0,0,0.5); padding: 2px;
+        }
+        
+        .toast {
+            position: absolute;
+            top: 40%; width: 100%;
+            text-align: center;
+            color: #FFD700; font-size: 24px;
+            text-shadow: 3px 3px 0 #000;
+            opacity: 0; transition: opacity 0.5s;
+            pointer-events: none;
+            z-index: 15;
+        }
+
+        #file-status { color: #888; font-size: 10px; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<!-- IMÁGENES (Solo Personajes y Fondos) -->
+<div style="display:none;">
+    <img id="img-idle" src="parada.png">
+    <img id="img-runR" src="derecha.png">
+    <img id="img-runL" src="izquierda.png">
+    <img id="img-eIdle" src="Villano_parado.png">
+    <img id="img-eRun" src="Villano_corriendo.png">
+    <img id="img-bg1" src="fondo_1.png">
+    <img id="img-bg2" src="fondo_2.png">
+    <img id="img-bg3" src="fondo_3.png">
+    <img id="img-bg4" src="fondo_4.png">
+</div>
+
+<div id="game-wrapper">
+    <canvas id="gameCanvas" width="800" height="600" tabindex="1"></canvas>
+
+    <div class="hud-layer">
+        <div>
+            <div class="life-container" id="hp-bar"></div>
+            <div style="margin-top:10px; font-size:12px;">NIVEL <span id="lvl-txt">1</span></div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size:10px; color:#aaa;">ARMA</div>
+            <div id="weapon-txt" style="color:#FFF; margin-top:5px;">AGUJA</div>
+        </div>
+    </div>
+    
+    <div id="toast-msg" class="toast"></div>
+    <div class="debug-info" id="debug-txt">Listo.</div>
+
+    <!-- MENÚ -->
+    <div id="menu-screen" class="menu">
+        <h1>CHARY<br><span style="font-size: 14px; display: block; margin-top: 15px; color: #FFF;">LA COSTURERA GUERRERA</span></h1>
+        
+        <div style="margin-bottom: 20px; border: 4px solid #fff; padding: 10px; background: rgba(255,255,255,0.1);">
+            <img src="parada.png" style="width: 64px; height: auto; image-rendering: pixelated;" alt="[Imagen Chary]">
+        </div>
+
+        <button onclick="iniciarJuego()">¡JUGAR!</button>
+        
+        <div style="margin-top:20px; border-top: 1px solid #555; padding-top: 10px; text-align: center;">
+            <p style="font-size: 9px; color: #aaa; margin-bottom: 5px;">Cargar imágenes:</p>
+            <input type="file" id="file-uploader" multiple accept="image/*" style="display:none">
+            <button class="btn-file" onclick="document.getElementById('file-uploader').click()">SELECCIONAR ARCHIVOS</button>
+            <div id="file-status"></div>
+        </div>
+    </div>
+
+    <!-- PANTALLAS FINAL -->
+    <div id="gameover-screen" class="menu hidden">
+        <h1 style="color:#FF5252">DERROTA</h1>
+        <p style="font-size:10px; margin-top:10px">Chary ha caído...</p>
+        <button onclick="location.reload()">REINTENTAR</button>
+    </div>
+    
+    <div id="victory-screen" class="menu hidden">
+        <h1 style="color:#69F0AE">¡VICTORIA!</h1>
+        <p style="font-size:10px; margin-top:10px">La moda reina de nuevo.</p>
+        <button onclick="location.reload()">INICIO</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+// Config
+const CFG = { GRAVITY: 0.9, SPEED: 5, JUMP: -16, FLOOR: 530, MAX_HP: 10 };
+
+// Audio System (Sintetizador Web Audio API)
+const AudioSys = {
+    ctx: null, isPlaying: false, theme: 'none', queue: [],
+    init: function() {
+        try {
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+        } catch (e) { console.warn("Audio error", e); }
+    },
+    playTone: function(f, t, d, v=0.1) {
+        if(!this.ctx) return;
+        try {
+            const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
+            o.type = t; o.frequency.setValueAtTime(f, this.ctx.currentTime);
+            g.gain.setValueAtTime(v, this.ctx.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime+d);
+            o.connect(g); g.connect(this.ctx.destination);
+            o.start(); o.stop(this.ctx.currentTime+d);
+        } catch(e){}
+    },
+    // SFX
+    sfx: {
+        jump: () => AudioSys.playTone(150, 'square', 0.1),
+        shoot: () => AudioSys.playTone(600, 'triangle', 0.1),
+        throw: () => AudioSys.playTone(200, 'sawtooth', 0.3),
+        hit: () => AudioSys.playTone(100, 'sawtooth', 0.2), 
+        explosion: () => AudioSys.playTone(50, 'square', 0.5, 0.3), 
+        pickup: () => { AudioSys.playTone(880, 'sine', 0.1); setTimeout(()=>AudioSys.playTone(1100, 'sine', 0.2), 100); },
+        bossDie: () => {
+            // Sonido dramático de muerte de jefe
+            AudioSys.playTone(100, 'sawtooth', 1.0, 0.5);
+            setTimeout(()=>AudioSys.playTone(80, 'square', 1.0, 0.5), 200);
+            setTimeout(()=>AudioSys.playTone(60, 'sawtooth', 1.5, 0.5), 400);
+        }
+    },
+    // Secuenciador Simple
+    playMelody: function(type) {
+        if(!this.ctx) return;
+        let notes = [];
+        if (type === 'die') {
+            // Melodía triste (Descendente)
+            notes = [
+                {f:392, d:0.3}, {f:370, d:0.3}, {f:349, d:0.3}, {f:330, d:0.8} // G4, F#4, F4, E4
+            ];
+        } else if (type === 'boss_win') {
+            // Fanfarria corta
+            notes = [
+                {f:523, d:0.1}, {f:659, d:0.1}, {f:783, d:0.1}, {f:1046, d:0.4} // C5, E5, G5, C6
+            ];
+        } else if (type === 'game_win') {
+            // Fanfarria Final
+            notes = [
+                {f:523, d:0.2}, {f:523, d:0.2}, {f:523, d:0.2}, {f:523, d:0.6}, {f:415, d:0.4}, {f:466, d:0.4}, {f:523, d:0.8}
+            ];
+        }
+        
+        let now = this.ctx.currentTime;
+        notes.forEach(n => {
+            const o = this.ctx.createOscillator(); const g = this.ctx.createGain();
+            o.type = 'square'; o.frequency.value = n.f;
+            g.gain.setValueAtTime(0.1, now); g.gain.linearRampToValueAtTime(0, now + n.d);
+            o.connect(g); g.connect(this.ctx.destination);
+            o.start(now); o.stop(now + n.d);
+            now += n.d;
+        });
+    },
+    startMusic: function(t) { /* Música de fondo placeholder */ }
+};
+
+// Game State
+let game = { run: false, lvl: 1, zone: 1, keys: {} };
+let imgs = {};
+let player = { x: 50, y: 400, w: 50, h: 80, vx: 0, vy: 0, hp: 10, ground: false, right: true, cd: 0, shield: 0, invuln: 0, special: 0 };
+let plats = [], enemies = [], bullets = [], traps = [], items = [];
+
+// Input
+window.addEventListener('keydown', e => { game.keys[e.key] = true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
+window.addEventListener('keyup', e => game.keys[e.key] = false);
+canvas.addEventListener('click', () => canvas.focus());
+
+function initImages() {
+    const load = (id) => document.getElementById(id);
+    imgs.idle = load('img-idle'); imgs.runR = load('img-runR'); imgs.runL = load('img-runL');
+    imgs.eIdle = load('img-eIdle'); imgs.eRun = load('img-eRun');
+    imgs.bg1 = load('img-bg1'); imgs.bg2 = load('img-bg2'); imgs.bg3 = load('img-bg3'); imgs.bg4 = load('img-bg4');
+}
+
+document.getElementById('file-uploader').addEventListener('change', (e) => {
+    const stat = document.getElementById('file-status');
+    Array.from(e.target.files).forEach(f => {
+        const r = new FileReader();
+        r.onload = (ev) => {
+            const i = new Image();
+            i.onload = () => {
+                let k = null;
+                if(f.name.includes('parada')) k='idle';
+                else if(f.name.includes('derecha')) k='runR';
+                else if(f.name.includes('izquierda')) k='runL';
+                else if(f.name.includes('Villano_parado')) k='eIdle';
+                else if(f.name.includes('Villano_corriendo')) k='eRun';
+                else if(f.name.includes('fondo_1')) k='bg1';
+                else if(f.name.includes('fondo_2')) k='bg2';
+                else if(f.name.includes('fondo_3')) k='bg3';
+                else if(f.name.includes('fondo_4')) k='bg4';
+                if(k) { imgs[k] = i; stat.innerText = "OK: " + f.name; }
+            };
+            i.src = ev.target.result;
+        };
+        r.readAsDataURL(f);
+    });
+});
+
+function iniciarJuego() {
+    try {
+        AudioSys.init();
+        initImages();
+        document.getElementById('menu-screen').classList.add('hidden');
+        canvas.focus();
+        game.run = true;
+        cargarNivel(1, 1);
+        loop();
+    } catch(e) { alert("Error al iniciar: " + e.message); }
+}
+
+function cargarNivel(l, z) {
+    game.lvl = l; game.zone = z;
+    plats = []; enemies = []; bullets = []; traps = []; items = [];
+
+    // Suelo
+    plats.push({x: -200, y: CFG.FLOOR, w: 1400, h: 100, type: 'floor'});
+
+    if (z < 4) {
+        for(let i=0; i<5; i++) {
+            let px = 200 + i * 140; let py = 400 - Math.random() * 150;
+            plats.push({x: px, y: py, w: 100, h: 20, type: 'plat'});
+            
+            if(Math.random()<0.2) traps.push({x: px+40, y: py-15, w: 20, h: 15});
+            
+            // Ítems (Unificados)
+            if(Math.random()<0.15 && player.special===0) items.push({x:px+35, y:py-40, w:30, h:25, type:'machine'});
+            else if(Math.random()<0.1) items.push({x:px+35, y:py-40, w:25, h:20, type:'hp'});
+        }
+        traps.push({x:400, y:CFG.FLOOR-15, w:40, h:15});
+        enemies.push({x:500, y:CFG.FLOOR-80, w:50, h:80, vx:2, hp:3, type:'mob', range:[300,700]});
+        enemies.push({x:300, y:200, w:50, h:80, vx:2, hp:3, type:'mob', range:[200,450]});
+    } else {
+        plats.push({x:100,y:450,w:150,h:20,type:'plat'});
+        plats.push({x:550,y:450,w:150,h:20,type:'plat'});
+        enemies.push({x:650,y:CFG.FLOOR-100,w:70,h:100,vx:3,hp:20+l,type:'boss',range:[0,800]});
+        items.push({x:350, y:350, w:30, h:25, type:'machine'});
+        items.push({x:150, y:410, w:25, h:20, type:'hp'});
+        toast("¡JEFE FINAL!");
+    }
+
+    player.x = 50; player.y = CFG.FLOOR - 100; player.vx = 0; player.vy = 0;
+    updateHUD();
+}
+
+function update() {
+    if (game.keys['ArrowRight']) { player.vx = CFG.SPEED; player.right = true; }
+    else if (game.keys['ArrowLeft']) { player.vx = -CFG.SPEED; player.right = false; }
+    else { player.vx = 0; }
+
+    if (game.keys['ArrowUp'] && player.ground) { 
+        player.vy = CFG.JUMP; player.ground = false; AudioSys.sfx.jump(); 
+    }
+
+    player.vy += CFG.GRAVITY;
+    player.x += player.vx; player.y += player.vy;
+
+    // Colisiones Suelo
+    player.ground = false;
+    for (let p of plats) {
+        if (rectCol(player, p)) {
+            if (player.vy > 0 && player.y + player.h - player.vy <= p.y + 20) {
+                player.y = p.y - player.h; player.vy = 0; player.ground = true;
+            }
+        }
+    }
+
+    if (player.x < 0) player.x = 0;
+    if (player.x > 750) nextScreen();
+    if (player.y > 700) hurt(10);
+
+    // Trampas
+    for (let t of traps) if (rectCol(player, t)) { hurt(1); player.vy = -5; }
+    
+    // Ítems
+    for (let i = items.length - 1; i >= 0; i--) {
+        if (rectCol(player, items[i])) {
+            let it = items[i];
+            if(it.type === 'machine') { player.special = 3; toast("¡MÁQUINA!"); }
+            else if(it.type === 'hp') { player.hp = Math.min(player.hp+2, CFG.MAX_HP); toast("¡SALUD!"); }
+            AudioSys.sfx.pickup();
+            items.splice(i, 1); updateHUD();
+        }
+    }
+
+    // Acciones
+    if (player.cd > 0) player.cd--;
+    if ((game.keys['z'] || game.keys['Z']) && player.cd <= 0) {
+        if (player.special > 0) {
+            bullets.push({x:player.right?player.x+player.w:player.x, y:player.y+10, vx:player.right?8:-8, vy:-6, own:'p', type:'bomb', life:100});
+            player.special--; player.cd = 30; AudioSys.sfx.throw();
+        } else {
+            bullets.push({x:player.right?player.x+player.w:player.x, y:player.y+35, vx:player.right?12:-12, vy:0, own:'p', type:'needle', life:50});
+            player.cd = 15; AudioSys.sfx.shoot();
+        }
+        updateHUD();
+    }
+
+    if(player.shield > -300) player.shield--;
+    if((game.keys['x'] || game.keys['X']) && player.shield <= -300) { player.shield = 120; AudioSys.sfx.pickup(); }
+    if(player.invuln > 0) player.invuln--;
+
+    // Enemigos
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        let e = enemies[i];
+        if (e.type === 'mob') { e.x += e.vx; if(e.x < e.range[0] || e.x > e.range[1]) e.vx *= -1; }
+        else {
+            if(player.x > e.x+10) e.x+=1.5; else if(player.x < e.x-10) e.x-=1.5;
+            if(Math.random()<0.03) bullets.push({x:e.x+35, y:e.y+50, vx:player.x>e.x?8:-8, vy:0, own:'e', type:'needle', life:80});
+        }
+        if (rectCol(player, e)) hurt(1);
+        if (e.hp <= 0) { 
+            enemies.splice(i, 1); 
+            if(e.type === 'boss') AudioSys.playMelody('boss_win'); // Música boss
+            else AudioSys.sfx.hit(); 
+        }
+    }
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        b.x += b.vx; b.y += b.vy; b.life--;
+        if (b.type === 'bomb') { b.vy += 0.5; if(b.y > CFG.FLOOR) { b.life = 0; AudioSys.sfx.explosion(); } }
+        
+        let hit = false;
+        if (b.own === 'p') {
+            for (let e of enemies) {
+                let sz = b.type==='bomb'?40:10;
+                if (rectCol({x:b.x, y:b.y, w:sz, h:sz}, e)) {
+                    e.hp -= (b.type==='bomb'?10:1); hit = true; 
+                    if(b.type==='bomb') AudioSys.sfx.explosion(); else AudioSys.sfx.hit();
+                    break;
+                }
+            }
+        } else {
+            if (rectCol({x:b.x, y:b.y, w:10, h:10}, player)) { hurt(1); hit = true; }
+        }
+        if (hit || b.life <= 0) bullets.splice(i, 1);
+    }
+
+    document.getElementById('debug-txt').innerText = `RUN: ${game.run} | FPS: ${Date.now()%100}`;
+}
+
+function draw() {
+    // 1. Fondo
+    ctx.fillStyle = '#2c001e'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    let bg = imgs['bg'+game.zone];
+    if(bg && bg.complete && bg.naturalWidth > 0) {
+        ctx.drawImage(bg, 0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+    }
+
+    // 2. Plataformas
+    for(let p of plats) {
+        ctx.fillStyle = p.type==='floor' ? '#111' : '#546E7A';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeStyle = '#fff'; ctx.strokeRect(p.x,p.y,p.w,p.h);
+    }
+
+    // 3. Trampas (Dibujo por código)
+    for(let t of traps) {
+        ctx.fillStyle = '#CFD8DC';
+        let s = Math.floor(t.w/10);
+        for(let k=0; k<s; k++) {
+            ctx.beginPath(); ctx.moveTo(t.x+k*10, t.y+t.h); ctx.lineTo(t.x+k*10+5, t.y); ctx.lineTo(t.x+k*10+10, t.y+t.h); ctx.fill();
+        }
+    }
+
+    // 4. Ítems (Dibujo por código)
+    for(let it of items) {
+        if(it.type === 'machine') drawMachine(it.x, it.y, 1, true);
+        else drawHealthKit(it.x, it.y, true);
+    }
+
+    // 5. Jugador
+    if (player.invuln % 10 < 5) {
+        let img = player.vx === 0 ? imgs.idle : (player.right ? imgs.runR : imgs.runL);
+        if (!img || !img.complete || img.naturalWidth===0) img = imgs.runR;
+        
+        if (img && img.complete && img.naturalWidth > 0) {
+            ctx.save();
+            if (!player.right && img === imgs.runR) { 
+                ctx.translate(player.x+player.w, player.y); ctx.scale(-1,1); ctx.drawImage(img, 0, 0, player.w, player.h);
+            } else {
+                ctx.drawImage(img, player.x, player.y, player.w, player.h);
+            }
+            ctx.restore();
+        } else {
+            ctx.fillStyle = '#03A9F4'; ctx.fillRect(player.x, player.y, player.w, player.h);
+        }
+
+        if(player.shield > 0) { ctx.strokeStyle='#00E676'; ctx.lineWidth=3; ctx.strokeRect(player.x-5, player.y-5, player.w+10, player.h+10); }
+    }
+
+    // 6. Enemigos
+    for(let e of enemies) {
+        let img = e.vx === 0 ? imgs.eIdle : imgs.eRun;
+        if (img && img.complete && img.naturalWidth > 0) {
+            ctx.save();
+            if (e.vx < 0) { ctx.translate(e.x+e.w, e.y); ctx.scale(-1,1); ctx.drawImage(img, 0, 0, e.w, e.h); }
+            else ctx.drawImage(img, e.x, e.y, e.w, e.h);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = e.type==='boss'?'#880E4F':'#D32F2F'; ctx.fillRect(e.x, e.y, e.w, e.h);
+        }
+    }
+
+    // 7. Proyectiles
+    for(let b of bullets) {
+        if(b.type==='bomb') drawMachine(b.x, b.y, 0.7, false);
+        else { ctx.fillStyle = b.own==='p'?'#FFF':'#F00'; ctx.fillRect(b.x, b.y, 10, 4); }
+    }
+}
+
+// Dibujo Procedural (Vectores) para Items
+function drawMachine(x, y, s, float) {
+    ctx.save(); ctx.translate(x, y + (float ? Math.sin(Date.now()/200)*5 : 0)); ctx.scale(s, s);
+    ctx.fillStyle = '#C6A700'; ctx.fillRect(0,15,30,10); // Base dorada
+    ctx.fillStyle = '#FFF'; ctx.fillRect(5,5,5,10); ctx.fillRect(5,5,20,5); ctx.fillRect(20,5,5,10);
+    ctx.strokeStyle = '#FFD700'; ctx.lineWidth = 2; ctx.strokeRect(0,0,30,25);
+    ctx.restore();
+}
+
+function drawHealthKit(x, y, float) {
+    ctx.save(); ctx.translate(x, y + (float ? Math.sin(Date.now()/200)*5 : 0));
+    ctx.fillStyle = '#FFF'; ctx.fillRect(0, 0, 25, 20);
+    ctx.strokeStyle = '#CCC'; ctx.strokeRect(0, 0, 25, 20);
+    ctx.fillStyle = '#F00'; ctx.fillRect(10, 4, 5, 12); ctx.fillRect(6, 8, 13, 4); // Cruz roja
+    ctx.restore();
+}
+
+function loop() { 
+    if(game.run) { 
+        try { update(); draw(); } catch(e) { console.error(e); ctx.fillStyle="red"; ctx.fillText("ERROR", 10, 50); }
+        requestAnimationFrame(loop); 
+    } 
+}
+
+function rectCol(r1, r2) { return r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1.y < r2.y + r2.h && r1.y + r1.h > r2.y; }
+function hurt(d) { 
+    if(player.shield>0 || player.invuln>0) return;
+    player.hp -= d; player.invuln = 60; updateHUD(); AudioSys.sfx.hit();
+    if(player.hp<=0) { 
+        game.run=false; 
+        document.getElementById('gameover-screen').classList.remove('hidden');
+        AudioSys.playMelody('die'); 
+    }
+}
+function nextScreen() {
+    game.zone++; 
+    if(game.zone>4){ game.zone=1; game.lvl++; }
+    if(game.lvl>10){ game.run=false; document.getElementById('victory-screen').classList.remove('hidden'); AudioSys.playMelody('game_win'); return; }
+    cargarNivel(game.lvl, game.zone);
+}
+function updateHUD() {
+    const b = document.getElementById('hp-bar'); b.innerHTML='';
+    for(let i=0;i<CFG.MAX_HP;i++) { let d=document.createElement('div'); d.className='needle-hp '+(i<player.hp?'':'lost'); b.appendChild(d); }
+    document.getElementById('lvl-txt').innerText = `${game.lvl}-${game.zone}`;
+    let w = document.getElementById('weapon-txt');
+    if(player.special>0) { w.innerText="MÁQUINA ("+player.special+")"; w.style.color="#FFD700"; } else { w.innerText="AGUJA"; w.style.color="#FFF"; }
+}
+function toast(m) { let t=document.getElementById('toast-msg'); t.innerText=m; t.style.opacity=1; setTimeout(()=>t.style.opacity=0, 2000); }
+
+</script>
+</body>
+</html>

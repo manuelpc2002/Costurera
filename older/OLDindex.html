@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>La Costurera Guerrera: Edición Final</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+        body {
+            margin: 0;
+            background-color: #111;
+            color: white;
+            font-family: 'Press Start 2P', cursive;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        #game-wrapper {
+            position: relative;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+            border: 4px solid #fff;
+        }
+
+        canvas {
+            display: block;
+            background-color: #222;
+            image-rendering: pixelated;
+            outline: none; /* Quitar borde de foco */
+        }
+
+        /* Capas de Interfaz */
+        .layer {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* HUD Superior */
+        .hud-bar {
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 2px solid #444;
+        }
+
+        .health-grid { display: flex; gap: 3px; }
+        .needle-hp {
+            width: 10px; height: 20px;
+            background: #00E676;
+            border: 1px solid #fff;
+            transform: skewX(-15deg);
+        }
+        .needle-hp.lost { background: #B71C1C; opacity: 0.3; border-color: #555; }
+
+        /* Pantallas de Menú */
+        .screen {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(10,10,10,0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 50;
+        }
+        .hidden { display: none !important; }
+
+        h1 {
+            color: #FFD700;
+            text-shadow: 4px 4px #C2185B;
+            font-size: 28px;
+            margin-bottom: 30px;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .btn {
+            background: #E91E63;
+            color: white;
+            border: 3px solid #fff;
+            padding: 20px 40px;
+            font-family: inherit;
+            font-size: 14px;
+            cursor: pointer;
+            margin: 10px;
+            text-transform: uppercase;
+            transition: 0.1s;
+        }
+        .btn:hover { background: #C2185B; transform: scale(1.05); }
+        .btn:active { transform: scale(0.95); }
+
+        #debug-log {
+            margin-top: 20px;
+            font-size: 10px;
+            color: #888;
+            font-family: monospace;
+            border: 1px solid #444;
+            padding: 10px;
+            max-width: 600px;
+            background: #000;
+        }
+        .log-ok { color: #69F0AE; }
+        .log-err { color: #FF5252; }
+
+        /* Mensajes flotantes */
+        .toast {
+            position: absolute;
+            top: 40%;
+            width: 100%;
+            text-align: center;
+            font-size: 20px;
+            color: #FFF;
+            text-shadow: 2px 2px 0 #000;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+    </style>
+</head>
+<body>
+
+<div id="game-wrapper">
+    <!-- El canvas tiene tabindex para recibir foco del teclado -->
+    <canvas id="gameCanvas" width="800" height="600" tabindex="1"></canvas>
+
+    <!-- HUD (Vida y Datos) -->
+    <div class="layer">
+        <div class="hud-bar">
+            <div>
+                <div class="health-grid" id="hp-display"></div>
+                <div style="margin-top:8px; font-size:10px;">NIVEL <span id="lvl-num">1</span></div>
+            </div>
+            <div style="text-align: right;">
+                <div style="font-size:10px; color:#aaa;">ESCUDO (X)</div>
+                <div id="shield-status" style="color:#00E676; margin-top:5px;">LISTO</div>
+            </div>
+        </div>
+        <div id="toast-msg" class="toast"></div>
+    </div>
+
+    <!-- MENÚ PRINCIPAL -->
+    <div id="menu-screen" class="screen">
+        <h1>LA COSTURERA<br>GUERRERA</h1>
+        <button class="btn" onclick="startGame()">¡JUGAR AHORA!</button>
+        
+        <div id="debug-log">
+            <div>ESTADO DE ARCHIVOS:</div>
+            <div id="file-list">...</div>
+        </div>
+        <div style="margin-top:20px; font-size:10px; color:#666;">
+            Controles: Flechas para mover/saltar<br>Z: Disparar | X: Escudo
+        </div>
+    </div>
+
+    <!-- GAME OVER -->
+    <div id="gameover-screen" class="screen hidden">
+        <h1 style="color:#FF5252">DERROTA</h1>
+        <p>Tus agujas se han roto...</p>
+        <button class="btn" onclick="location.reload()">REINTENTAR</button>
+    </div>
+
+    <!-- VICTORIA -->
+    <div id="victory-screen" class="screen hidden">
+        <h1 style="color:#69F0AE">¡VICTORIA!</h1>
+        <p>La moda es tuya.</p>
+        <button class="btn" onclick="location.reload()">INICIO</button>
+    </div>
+</div>
+
+<script>
+/** * CONFIGURACIÓN CENTRAL
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false; // Pixel art nítido
+
+// Física y Juego
+const CONFIG = {
+    GRAVEDAD: 0.9,
+    VELOCIDAD: 5,
+    SALTO: -16,
+    SUELO_Y: 530, // Altura visual del suelo
+    MAX_VIDA: 10
+};
+
+// Nombres de archivos (Sensible a mayúsculas)
+const FILES = {
+    // Personajes
+    idle: 'parada.png',
+    runR: 'derecha.png',
+    runL: 'izquierda.png',
+    eIdle: 'Villano_parado.png',
+    eRun: 'Villano_corriendo.png',
+    
+    // Fondos (Uno por pantalla)
+    bg1: 'fondo_1.png', // Callejon Telas
+    bg2: 'fondo_2.png', // Centro Comercial
+    bg3: 'fondo_3.png', // Taller
+    bg4: 'fondo_4.png'  // Boutique (Boss)
+};
+
+// Variables Globales
+let game = {
+    running: false,
+    level: 1,
+    screen: 1,
+    images: {},
+    keys: {}
+};
+
+// Entidades
+let player = { 
+    x: 50, y: 400, w: 50, h: 80, 
+    vx: 0, vy: 0, 
+    hp: 10, grounded: false, facingRight: true,
+    cooldown: 0, shield: 0, invuln: 0
+};
+
+let platforms = [];
+let enemies = [];
+let bullets = [];
+
+/**
+ * SISTEMA DE CARGA DE IMÁGENES (CON FALLBACK)
+ */
+function preloadImages() {
+    const log = document.getElementById('file-list');
+    log.innerHTML = '';
+    
+    for (let [key, src] of Object.entries(FILES)) {
+        const img = new Image();
+        img.src = src;
+        
+        // Elemento de log
+        const item = document.createElement('div');
+        item.textContent = `⏳ ${src}`;
+        log.appendChild(item);
+
+        img.onload = () => {
+            item.textContent = `✅ ${src} (OK)`;
+            item.className = 'log-ok';
+            game.images[key] = img;
+        };
+
+        img.onerror = () => {
+            item.textContent = `❌ ${src} (NO ENCONTRADO - Usando Bloque)`;
+            item.className = 'log-err';
+            game.images[key] = null; // Marcar como nulo para usar fallback
+        };
+    }
+}
+
+/**
+ * CONTROLES (EVENTOS GLOBALES)
+ */
+window.addEventListener('keydown', e => {
+    game.keys[e.key] = true;
+    // Evitar scroll con espacio/flechas
+    if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
+        e.preventDefault();
+    }
+});
+window.addEventListener('keyup', e => game.keys[e.key] = false);
+
+// Foco automático para asegurar que el teclado funcione
+canvas.addEventListener('click', () => canvas.focus());
+
+/**
+ * LÓGICA DEL JUEGO
+ */
+function startGame() {
+    // 1. Ocultar menú
+    document.getElementById('menu-screen').classList.add('hidden');
+    // 2. Dar foco al canvas (CRÍTICO para controles)
+    canvas.focus();
+    window.focus();
+    // 3. Iniciar variables
+    game.running = true;
+    player.hp = CONFIG.MAX_VIDA;
+    loadLevel(1, 1);
+    // 4. Arrancar bucle
+    requestAnimationFrame(gameLoop);
+}
+
+function loadLevel(lvl, scr) {
+    game.level = lvl;
+    game.screen = scr;
+    platforms = [];
+    enemies = [];
+    bullets = [];
+
+    // Suelo Sólido (Garantizado)
+    platforms.push({x: -100, y: CONFIG.SUELO_Y, w: 1200, h: 100, type: 'floor'});
+
+    if (scr < 4) {
+        // Plataformas aleatorias
+        for (let i = 0; i < 4; i++) {
+            platforms.push({
+                x: 200 + i * 150,
+                y: 400 - Math.random() * 150,
+                w: 100, h: 20, type: 'plat'
+            });
+        }
+        
+        // Enemigos (Garantizar al menos 1 en el suelo)
+        enemies.push({
+            x: 400, y: CONFIG.SUELO_Y - 80, w: 50, h: 80,
+            vx: 2, hp: 3, type: 'basic', range: [200, 600]
+        });
+        
+        // Otro enemigo aleatorio
+        if (Math.random() > 0.3) {
+            enemies.push({
+                x: 600, y: 250, w: 50, h: 80,
+                vx: 2, hp: 3, type: 'basic', range: [500, 700]
+            });
+        }
+    } else {
+        // JEFE
+        platforms.push({x: 100, y: 450, w: 150, h: 20, type: 'plat'});
+        platforms.push({x: 550, y: 450, w: 150, h: 20, type: 'plat'});
+        enemies.push({
+            x: 650, y: CONFIG.SUELO_Y - 100, w: 70, h: 100,
+            vx: 3, hp: 25, type: 'boss', range: [0, 800]
+        });
+        showToast("¡JEFE FINAL!");
+    }
+
+    player.x = 50; 
+    player.y = CONFIG.SUELO_Y - 100;
+    player.vx = 0; player.vy = 0;
+    updateHUD();
+}
+
+function update() {
+    if (!game.running) return;
+
+    // --- JUGADOR ---
+    // Movimiento
+    if (game.keys['ArrowRight']) { player.vx = CONFIG.VELOCIDAD; player.facingRight = true; }
+    else if (game.keys['ArrowLeft']) { player.vx = -CONFIG.VELOCIDAD; player.facingRight = false; }
+    else { player.vx = 0; }
+
+    // Salto
+    if (game.keys['ArrowUp'] && player.grounded) {
+        player.vy = CONFIG.SALTO;
+        player.grounded = false;
+    }
+
+    // Gravedad
+    player.vy += CONFIG.GRAVEDAD;
+    player.x += player.vx;
+    player.y += player.vy;
+
+    // Colisiones Suelo/Plataformas
+    player.grounded = false;
+    for (let p of platforms) {
+        if (rectCol(player, p)) {
+            // Aterrizar solo si cae desde arriba
+            if (player.vy > 0 && player.y + player.h - player.vy <= p.y + 20) {
+                player.y = p.y - player.h;
+                player.vy = 0;
+                player.grounded = true;
+            }
+        }
+    }
+
+    // Límites
+    if (player.x < 0) player.x = 0;
+    if (player.x > 750) nextScreen();
+    if (player.y > 700) hurtPlayer(99); // Caída
+
+    // Disparo (Z)
+    if (player.cooldown > 0) player.cooldown--;
+    if ((game.keys['z'] || game.keys['Z']) && player.cooldown <= 0) {
+        bullets.push({
+            x: player.facingRight ? player.x + player.w : player.x,
+            y: player.y + 35,
+            vx: player.facingRight ? 12 : -12,
+            owner: 'player', life: 50
+        });
+        player.cooldown = 15;
+    }
+
+    // Escudo (X)
+    if (player.shield > -300) player.shield--;
+    if ((game.keys['x'] || game.keys['X']) && player.shield <= -300) {
+        player.shield = 120; // 2 segundos activo
+    }
+    if (player.invuln > 0) player.invuln--;
+
+    // --- ENEMIGOS ---
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        let e = enemies[i];
+        
+        // Movimiento IA
+        if (e.type === 'basic') {
+            e.x += e.vx;
+            if (e.x < e.range[0] || e.x > e.range[1]) e.vx *= -1;
+        } else {
+            // Jefe persigue
+            if (player.x > e.x + 10) e.x += 1.5;
+            else if (player.x < e.x - 10) e.x -= 1.5;
+            // Jefe dispara
+            if (Math.random() < 0.02) {
+                bullets.push({x: e.x+35, y: e.y+50, vx: (player.x > e.x ? 7 : -7), owner: 'enemy', life: 80});
+            }
+        }
+
+        // Colisión Jugador
+        if (rectCol(player, e)) hurtPlayer(1);
+
+        if (e.hp <= 0) enemies.splice(i, 1);
+    }
+
+    // --- PROYECTILES ---
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        b.x += b.vx;
+        b.life--;
+
+        let hit = false;
+        if (b.owner === 'player') {
+            for (let e of enemies) {
+                if (rectCol({x:b.x, y:b.y, w:10, h:10}, e)) {
+                    e.hp--; hit = true; break;
+                }
+            }
+        } else {
+            if (rectCol({x:b.x, y:b.y, w:10, h:10}, player)) {
+                hurtPlayer(1); hit = true;
+            }
+        }
+
+        if (hit || b.life <= 0) bullets.splice(i, 1);
+    }
+}
+
+function draw() {
+    // 1. DIBUJAR FONDO
+    let bgImg = game.images['bg' + game.screen];
+    if (bgImg && bgImg.complete && bgImg.naturalWidth > 0) {
+        // Dibujar imagen de fondo estirada (Simple)
+        ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+        
+        // Oscurecer ligeramente para que se vea la UI
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    } else {
+        // Fallback: Color sólido si no hay imagen de fondo
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Plataformas
+    for (let p of platforms) {
+        ctx.fillStyle = p.type === 'floor' ? '#333' : '#546E7A';
+        ctx.fillRect(p.x, p.y, p.w, p.h);
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(p.x, p.y, p.w, p.h);
+    }
+
+    // Jugador
+    if (player.invuln % 10 < 5) {
+        let imgKey = player.vx === 0 ? 'idle' : (player.facingRight ? 'runR' : 'runL');
+        // Si no hay img específica de runL, usa runR
+        if (imgKey === 'runL' && !game.images['runL']) imgKey = 'runR';
+
+        drawEntity(game.images[imgKey], player.x, player.y, player.w, player.h, '#03A9F4', !player.facingRight && imgKey === 'runR');
+        
+        // Escudo
+        if (player.shield > 0) {
+            ctx.strokeStyle = '#00E676';
+            ctx.beginPath();
+            ctx.arc(player.x + player.w/2, player.y + player.h/2, 50, 0, Math.PI*2);
+            ctx.stroke();
+        }
+    }
+
+    // Enemigos
+    for (let e of enemies) {
+        let imgKey = e.vx === 0 ? 'eIdle' : 'eRun';
+        // Dibujamos al enemigo (rojo si falla imagen)
+        drawEntity(game.images[imgKey], e.x, e.y, e.w, e.h, '#FF5252', e.vx < 0);
+        
+        // Barra vida jefe
+        if (e.type === 'boss') {
+            ctx.fillStyle = 'red';
+            ctx.fillRect(e.x, e.y - 15, e.w, 8);
+            ctx.fillStyle = '#00E676';
+            ctx.fillRect(e.x, e.y - 15, (e.hp / 25) * e.w, 8);
+        }
+    }
+
+    // Proyectiles
+    for (let b of bullets) {
+        ctx.fillStyle = b.owner === 'player' ? '#FFF' : '#FF1744';
+        ctx.fillRect(b.x, b.y, 15, 4);
+    }
+}
+
+// Función Maestra de Dibujo (Maneja imágenes y fallbacks)
+function drawEntity(img, x, y, w, h, fallbackColor, flip) {
+    if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save();
+        if (flip) {
+            ctx.translate(x + w, y);
+            ctx.scale(-1, 1);
+            ctx.drawImage(img, 0, 0, w, h);
+        } else {
+            ctx.drawImage(img, x, y, w, h);
+        }
+        ctx.restore();
+    } else {
+        // Fallback: Rectángulo sólido
+        ctx.fillStyle = fallbackColor;
+        ctx.fillRect(x, y, w, h);
+        // Borde para depuración (ayuda a ver hitboxes vacías)
+        ctx.strokeStyle = 'white';
+        ctx.strokeRect(x, y, w, h);
+    }
+}
+
+function gameLoop() {
+    if (game.running) {
+        update();
+        draw();
+        updateHUD();
+        requestAnimationFrame(gameLoop);
+    }
+}
+
+/**
+ * UTILIDADES
+ */
+function rectCol(r1, r2) {
+    return r1.x < r2.x + r2.w && r1.x + r1.w > r2.x &&
+           r1.y < r2.y + r2.h && r1.y + r1.h > r2.y;
+}
+
+function hurtPlayer(dmg) {
+    if (player.shield > 0 || player.invuln > 0) return;
+    player.hp -= dmg;
+    player.invuln = 60;
+    if (player.hp <= 0) {
+        game.running = false;
+        document.getElementById('gameover-screen').classList.remove('hidden');
+    }
+}
+
+function nextScreen() {
+    game.screen++;
+    if (game.screen > 4) {
+        game.level++;
+        if (game.level > 10) {
+            game.running = false;
+            document.getElementById('victory-screen').classList.remove('hidden');
+            return;
+        }
+        game.screen = 1;
+    }
+    loadLevel(game.level, game.screen);
+}
+
+function updateHUD() {
+    const hpDiv = document.getElementById('hp-display');
+    hpDiv.innerHTML = '';
+    for(let i=0; i<CONFIG.MAX_VIDA; i++) {
+        let pip = document.createElement('div');
+        pip.className = 'needle-hp ' + (i < player.hp ? '' : 'lost');
+        hpDiv.appendChild(pip);
+    }
+    document.getElementById('lvl-num').innerText = `${game.level}-${game.screen}`;
+    
+    let st = document.getElementById('shield-status');
+    if (player.shield > 0) { st.innerText = "ACTIVO"; st.style.color = "#00E676"; }
+    else if (player.shield > -300) { st.innerText = "CARGANDO"; st.style.color = "#D32F2F"; }
+    else { st.innerText = "LISTO"; st.style.color = "#FFF"; }
+}
+
+function showToast(msg) {
+    let t = document.getElementById('toast-msg');
+    t.innerText = msg;
+    t.style.opacity = 1;
+    setTimeout(() => t.style.opacity = 0, 2000);
+}
+
+// Iniciar precarga
+preloadImages();
+
+</script>
+</body>
+</html>
