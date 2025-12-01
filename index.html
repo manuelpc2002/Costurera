@@ -2,7 +2,8 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>La Costurera Guerrera: Edición Final</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>La Costurera Guerrera: Mobile Edition</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
@@ -17,14 +18,17 @@
             height: 100vh;
             overflow: hidden;
             user-select: none;
+            touch-action: none; /* Evita zoom/scroll en móvil */
         }
 
         #game-wrapper {
             position: relative;
-            width: 800px;
-            height: 600px;
+            width: 100%;
+            height: 100%;
+            max-width: 800px;
+            max-height: 600px;
             box-shadow: 0 0 50px rgba(0,0,0,0.9);
-            border: 4px solid #fff;
+            border: 2px solid #fff;
             background: #222;
         }
 
@@ -40,7 +44,7 @@
         .hud-layer {
             position: absolute;
             top: 0; left: 0;
-            width: 100%; padding: 15px;
+            width: 100%; padding: 10px;
             box-sizing: border-box;
             display: flex;
             justify-content: space-between;
@@ -49,14 +53,59 @@
             z-index: 10;
         }
 
-        .life-container { display: flex; gap: 4px; }
+        .life-container { display: flex; gap: 2px; }
         .needle-hp {
-            width: 10px; height: 25px;
+            width: 8px; height: 20px;
             background: #00E676;
             border: 1px solid #fff;
             clip-path: polygon(40% 0%, 60% 0%, 100% 100%, 0% 100%);
         }
         .needle-hp.lost { background: #555; opacity: 0.5; }
+
+        /* Controles Táctiles */
+        .touch-controls {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            height: 150px;
+            pointer-events: none; /* Dejar pasar toques a los botones hijos */
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            box-sizing: border-box;
+            z-index: 50;
+        }
+
+        .dpad {
+            position: relative;
+            width: 150px; height: 150px;
+            pointer-events: auto;
+        }
+        
+        .action-pad {
+            position: relative;
+            width: 150px; height: 150px;
+            pointer-events: auto;
+        }
+
+        .t-btn {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.15);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 10px;
+            backdrop-filter: blur(2px);
+            touch-action: none;
+        }
+        .t-btn:active { background: rgba(255, 255, 255, 0.4); }
+
+        /* D-PAD Layout */
+        #btn-left { bottom: 50px; left: 0; width: 50px; height: 50px; }
+        #btn-right { bottom: 50px; left: 70px; width: 50px; height: 50px; }
+        #btn-up { bottom: 90px; left: 35px; width: 50px; height: 50px; }
+        
+        /* Action Layout */
+        #btn-z { bottom: 30px; right: 80px; width: 60px; height: 60px; border-radius: 50%; background: rgba(255, 0, 0, 0.2); }
+        #btn-x { bottom: 80px; right: 10px; width: 50px; height: 50px; border-radius: 50%; background: rgba(0, 0, 255, 0.2); }
 
         /* Menús */
         .menu {
@@ -68,7 +117,8 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            z-index: 20;
+            z-index: 100;
+            pointer-events: auto;
         }
         .hidden { display: none !important; }
 
@@ -76,9 +126,9 @@
             background: #E91E63;
             color: white;
             border: 4px solid #fff;
-            padding: 20px 40px;
+            padding: 15px 30px;
             font-family: inherit;
-            font-size: 18px;
+            font-size: 14px;
             cursor: pointer;
             margin-top: 15px;
             text-transform: uppercase;
@@ -88,7 +138,7 @@
 
         .btn-file { background: #2196F3; font-size: 10px; padding: 10px; margin-top: 5px; }
 
-        h1 { color: #FFD700; text-shadow: 4px 4px #C2185B; margin-bottom: 20px; text-align: center; line-height: 1.5; font-size: 28px; }
+        h1 { color: #FFD700; text-shadow: 4px 4px #C2185B; margin-bottom: 20px; text-align: center; line-height: 1.5; font-size: 20px; }
 
         .debug-info {
             position: absolute;
@@ -102,7 +152,7 @@
             position: absolute;
             top: 40%; width: 100%;
             text-align: center;
-            color: #FFD700; font-size: 24px;
+            color: #FFD700; font-size: 18px;
             text-shadow: 3px 3px 0 #000;
             opacity: 0; transition: opacity 0.5s;
             pointer-events: none;
@@ -110,13 +160,11 @@
         }
 
         #file-status { color: #888; font-size: 10px; margin-top: 10px; }
-        .blink { animation: blinker 1s linear infinite; }
-        @keyframes blinker { 50% { opacity: 0; } }
     </style>
 </head>
 <body>
 
-<!-- IMÁGENES CARGADAS DESDE HTML -->
+<!-- IMÁGENES CARGADAS DESDE HTML (Más seguro) -->
 <div style="display:none;">
     <img id="img-idle" src="parada.png">
     <img id="img-runR" src="derecha.png">
@@ -138,11 +186,24 @@
     <div class="hud-layer">
         <div>
             <div class="life-container" id="hp-bar"></div>
-            <div style="margin-top:10px; font-size:12px;">NIVEL <span id="lvl-txt">1</span></div>
+            <div style="margin-top:10px; font-size:10px;">NIVEL <span id="lvl-txt">1</span></div>
         </div>
         <div style="text-align: right;">
-            <div style="font-size:10px; color:#aaa;">ARMA</div>
-            <div id="weapon-txt" style="color:#FFF; margin-top:5px;">AGUJA</div>
+            <div style="font-size:8px; color:#aaa;">ARMA</div>
+            <div id="weapon-txt" style="color:#FFF; margin-top:5px; font-size:10px;">AGUJA</div>
+        </div>
+    </div>
+    
+    <!-- CONTROLES TÁCTILES -->
+    <div class="touch-controls" id="touch-layer">
+        <div class="dpad">
+            <div id="btn-left" class="t-btn"></div>
+            <div id="btn-right" class="t-btn"></div>
+            <div id="btn-up" class="t-btn"></div>
+        </div>
+        <div class="action-pad">
+            <div id="btn-z" class="t-btn"></div> <!-- Disparo -->
+            <div id="btn-x" class="t-btn"></div> <!-- Escudo -->
         </div>
     </div>
     
@@ -151,19 +212,18 @@
 
     <!-- MENÚ -->
     <div id="menu-screen" class="menu">
-        <h1>CHARY<br><span style="font-size: 14px; display: block; margin-top: 15px; color: #FFF;">LA COSTURERA GUERRERA</span></h1>
+        <h1>CHARY<br><span style="font-size: 12px; display: block; margin-top: 15px; color: #FFF;">LA COSTURERA GUERRERA</span></h1>
         
         <div style="margin-bottom: 20px; border: 4px solid #fff; padding: 10px; background: rgba(255,255,255,0.1);">
-            <img src="parada.png" style="width: 64px; height: auto; image-rendering: pixelated;" alt="[Imagen Chary]">
+            <img src="parada.png" style="width: 48px; height: auto; image-rendering: pixelated;" alt="[Imagen Chary]">
         </div>
 
         <button onclick="iniciarJuego()">¡JUGAR!</button>
-        <p class="blink" style="margin-top:15px; font-size:10px; color:#FFD700; cursor:pointer;" onclick="activarSonidoMenu()">🔊 HAZ CLIC AQUÍ SI NO OYES MÚSICA</p>
         
         <div style="margin-top:20px; border-top: 1px solid #555; padding-top: 10px; text-align: center;">
-            <p style="font-size: 9px; color: #aaa; margin-bottom: 5px;">Si la pantalla se ve negra:</p>
+            <p style="font-size: 8px; color: #aaa; margin-bottom: 5px;">Si la pantalla se ve negra:</p>
             <input type="file" id="file-uploader" multiple accept="image/*" style="display:none">
-            <button class="btn-file" onclick="document.getElementById('file-uploader').click()">CARGAR IMÁGENES MANUALMENTE</button>
+            <button class="btn-file" onclick="document.getElementById('file-uploader').click()">CARGAR IMÁGENES</button>
             <div id="file-status"></div>
         </div>
     </div>
@@ -187,7 +247,7 @@ ctx.imageSmoothingEnabled = false;
 
 const CFG = { GRAVITY: 0.9, SPEED: 5, JUMP: -16, FLOOR: 530, MAX_HP: 10 };
 
-// --- AUDIO ROBUSTO ---
+// Audio System
 const AudioSys = {
     ctx: null, isPlaying: false, theme: 'none', queue: [], nextNoteTime: 0, noteIndex: 0,
     
@@ -199,95 +259,60 @@ const AudioSys = {
         if (this.ctx.state === 'suspended') this.ctx.resume();
     },
 
-    // Reproducir tono en un momento específico (when)
     playTone: function(f, type, dur, when, vol=0.1) {
         if(!this.ctx) return;
         try {
             const osc = this.ctx.createOscillator();
             const gain = this.ctx.createGain();
             const t = when || this.ctx.currentTime;
-            
-            osc.type = type;
-            osc.frequency.setValueAtTime(f, t);
-            
+            osc.type = type; osc.frequency.setValueAtTime(f, t);
             gain.gain.setValueAtTime(vol, t);
-            gain.gain.linearRampToValueAtTime(0, t + dur); // Linear es más seguro que exponential para el 0
-            
-            osc.connect(gain);
-            gain.connect(this.ctx.destination);
-            osc.start(t);
-            osc.stop(t + dur);
-        } catch(e) { console.warn("Audio glitch", e); }
+            gain.gain.linearRampToValueAtTime(0, t + dur);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(t); osc.stop(t + dur);
+        } catch(e) {}
     },
 
     musicLoop: function() {
         if (!this.ctx || !this.isPlaying) return;
-        
-        // Planificar notas con 0.1s de antelación
         const lookahead = 0.1;
         while (this.nextNoteTime < this.ctx.currentTime + lookahead) {
             if (this.theme !== 'none') {
                 this.scheduleNote(this.noteIndex, this.nextNoteTime);
-                // Calcular tiempo para la siguiente nota según el tema
                 let tempo = (this.theme === 'menu') ? 180 : (this.theme === 'boss' ? 300 : 240);
                 this.nextNoteTime += 60.0 / tempo;
                 this.noteIndex++;
-            } else {
-                this.nextNoteTime += 0.1; // Esperar
-            }
+            } else { this.nextNoteTime += 0.1; }
         }
         requestAnimationFrame(this.musicLoop.bind(this));
     },
 
     scheduleNote: function(i, time) {
-        let m = i % 16;
-        let n = 0;
-        let type = 'triangle';
-        let vol = 0.05;
-
-        // MENU MUSIC
+        let m = i % 16; let n = 0; let type = 'triangle'; let vol = 0.05;
         if (this.theme === 'menu') {
-            if (m % 2 === 0) AudioSys.playTone(110, 'square', 0.1, time, 0.05); // Bass
-            // Melodia
+            if (m % 2 === 0) AudioSys.playTone(110, 'square', 0.1, time, 0.05);
             if(m===0) n=523; else if(m===2) n=659; else if(m===4) n=783; 
             else if(m===6) n=880; else if(m===8) n=783; else if(m===12) n=523;
             type = 'square'; vol=0.08;
-        }
-        // LEVEL MUSIC
-        else if (this.theme === 'level') {
+        } else if (this.theme === 'level') {
             if(m===0 || m===8) n=220; else if(m===4 || m===12) n=164; else if(m%2===0) n=196;
-        } 
-        // BOSS MUSIC
-        else if (this.theme === 'boss') {
-            if(m%2===0) n = 110 + (m*5);
-            type = 'sawtooth';
+        } else if (this.theme === 'boss') {
+            if(m%2===0) n = 110 + (m*5); type = 'sawtooth';
         }
-
         if (n>0) this.playTone(n, type, 0.1, time, vol);
     },
 
     startMusic: function(t) {
-        this.init();
-        this.theme = t;
-        if (!this.isPlaying) {
-            this.isPlaying = true;
-            this.nextNoteTime = this.ctx.currentTime + 0.1;
-            this.musicLoop();
-        }
+        this.init(); this.theme = t;
+        if (!this.isPlaying) { this.isPlaying = true; this.nextNoteTime = this.ctx.currentTime + 0.1; this.musicLoop(); }
     },
 
     playMelody: function(type) {
-        this.init();
-        this.theme = 'none'; // Parar música fondo
+        this.init(); this.theme = 'none';
         let now = this.ctx.currentTime;
-        let notes = [];
-        if (type === 'die') notes = [{f:392, d:0.3}, {f:370, d:0.3}, {f:349, d:0.3}, {f:330, d:0.8}];
-        else if (type === 'win') notes = [{f:523, d:0.2}, {f:659, d:0.2}, {f:783, d:0.2}, {f:1046, d:0.6}];
-        
-        notes.forEach(n => {
-            this.playTone(n.f, 'square', n.d, now, 0.1);
-            now += n.d;
-        });
+        let notes = type === 'die' ? [{f:392, d:0.3}, {f:370, d:0.3}, {f:349, d:0.3}, {f:330, d:0.8}] : 
+                                     [{f:523, d:0.2}, {f:659, d:0.2}, {f:783, d:0.2}, {f:1046, d:0.6}];
+        notes.forEach(n => { this.playTone(n.f, 'square', n.d, now, 0.1); now += n.d; });
     },
 
     sfx: {
@@ -300,13 +325,14 @@ const AudioSys = {
     }
 };
 
-// Evento Global para activar audio al primer clic
+// Evento Global Audio
 function activarSonidoMenu() {
     AudioSys.init();
     if(game.run === false) AudioSys.startMusic('menu');
 }
 window.addEventListener('click', activarSonidoMenu, {once:true});
 window.addEventListener('keydown', activarSonidoMenu, {once:true});
+window.addEventListener('touchstart', activarSonidoMenu, {once:true});
 
 // Game State
 let game = { run: false, lvl: 1, zone: 1, keys: {} };
@@ -314,9 +340,21 @@ let imgs = {};
 let player = { x: 50, y: 400, w: 50, h: 80, vx: 0, vy: 0, hp: 10, ground: false, right: true, cd: 0, shield: 0, invuln: 0, special: 0 };
 let plats = [], enemies = [], bullets = [], traps = [], items = [];
 
+// Input Teclado
 window.addEventListener('keydown', e => { game.keys[e.key] = true; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
 window.addEventListener('keyup', e => game.keys[e.key] = false);
-canvas.addEventListener('click', () => canvas.focus());
+
+// Input Táctil
+const bindTouch = (id, key) => {
+    const el = document.getElementById(id);
+    el.addEventListener('touchstart', (e) => { e.preventDefault(); game.keys[key] = true; });
+    el.addEventListener('touchend', (e) => { e.preventDefault(); game.keys[key] = false; });
+};
+bindTouch('btn-left', 'ArrowLeft');
+bindTouch('btn-right', 'ArrowRight');
+bindTouch('btn-up', 'ArrowUp');
+bindTouch('btn-z', 'z'); // Disparo
+bindTouch('btn-x', 'x'); // Escudo
 
 function initImages() {
     const load = (id) => document.getElementById(id);
@@ -326,7 +364,6 @@ function initImages() {
     imgs.machine = load('img-machine'); imgs.health = load('img-health'); imgs.trap = load('img-trap');
 }
 
-// Carga Manual
 document.getElementById('file-uploader').addEventListener('change', (e) => {
     const stat = document.getElementById('file-status');
     Array.from(e.target.files).forEach(f => {
@@ -403,6 +440,7 @@ function cargarNivel(l, z) {
 }
 
 function update() {
+    // Player
     if (game.keys['ArrowRight']) { player.vx = CFG.SPEED; player.right = true; }
     else if (game.keys['ArrowLeft']) { player.vx = -CFG.SPEED; player.right = false; }
     else { player.vx = 0; }
@@ -414,6 +452,7 @@ function update() {
     player.vy += CFG.GRAVITY;
     player.x += player.vx; player.y += player.vy;
 
+    // Colisiones
     player.ground = false;
     for (let p of plats) {
         if (rectCol(player, p)) {
@@ -509,13 +548,24 @@ function draw() {
     }
 
     for(let t of traps) {
-        if(imgs.trap && imgs.trap.complete && imgs.trap.naturalWidth>0) ctx.drawImage(imgs.trap, t.x, t.y, t.w, t.h);
-        else { ctx.fillStyle = '#BBB'; ctx.fillRect(t.x, t.y, t.w, t.h); }
+        if(imgs.trap && imgs.trap.complete && imgs.trap.naturalWidth>0) {
+            ctx.save();
+            ctx.filter = 'contrast(0) sepia(100%) hue-rotate(180deg) brightness(2) saturate(0)';
+            ctx.drawImage(imgs.trap, t.x, t.y, t.w, t.h);
+            ctx.restore();
+        } else { ctx.fillStyle = '#BBB'; ctx.fillRect(t.x, t.y, t.w, t.h); }
     }
 
     for(let it of items) {
         let img = (it.type === 'machine') ? imgs.machine : imgs.health;
-        if(img && img.complete && img.naturalWidth>0) ctx.drawImage(img, it.x, it.y, it.w, it.h);
+        if(img && img.complete && img.naturalWidth>0) {
+            ctx.save();
+            if(it.type === 'machine' || it.type === 'hp') {
+                 ctx.filter = 'contrast(0) sepia(100%) hue-rotate(180deg) brightness(2) saturate(0)';
+            }
+            ctx.drawImage(img, it.x, it.y, it.w, it.h);
+            ctx.restore();
+        }
         else { ctx.fillStyle = (it.type === 'machine') ? 'gold' : 'white'; ctx.fillRect(it.x, it.y, it.w, it.h); }
     }
 
@@ -551,8 +601,12 @@ function draw() {
 
     for(let b of bullets) {
         if(b.type==='bomb') {
-            if(imgs.machine && imgs.machine.complete && imgs.machine.naturalWidth>0) ctx.drawImage(imgs.machine, b.x, b.y, 30, 25);
-            else { ctx.fillStyle='gold'; ctx.fillRect(b.x, b.y, 30, 25); }
+            if(imgs.machine && imgs.machine.complete && imgs.machine.naturalWidth>0) {
+                ctx.save();
+                ctx.filter = 'contrast(0) sepia(100%) hue-rotate(180deg) brightness(2) saturate(0)';
+                ctx.drawImage(imgs.machine, b.x, b.y, 30, 25);
+                ctx.restore();
+            } else { ctx.fillStyle='gold'; ctx.fillRect(b.x, b.y, 30, 25); }
         } else { 
             ctx.fillStyle = b.own==='p'?'#FFF':'#F00'; ctx.fillRect(b.x, b.y, 10, 4); 
         }
@@ -570,7 +624,12 @@ function rectCol(r1, r2) { return r1.x < r2.x + r2.w && r1.x + r1.w > r2.x && r1
 function hurt(d) { 
     if(player.shield>0 || player.invuln>0) return;
     player.hp -= d; player.invuln = 60; updateHUD(); AudioSys.sfx.hit();
-    if(player.hp<=0) { game.run=false; document.getElementById('gameover-screen').classList.remove('hidden'); AudioSys.playMelody('die'); AudioSys.stopMusic(); }
+    if(player.hp<=0) { 
+        game.run=false; 
+        document.getElementById('gameover-screen').classList.remove('hidden');
+        AudioSys.playMelody('die'); 
+        AudioSys.stopMusic();
+    }
 }
 function nextScreen() {
     game.zone++; 
